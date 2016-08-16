@@ -76,10 +76,10 @@ def game_port(server_id):
     :return: int
     """
     # sql = "SELECT s_port FROM server WHERE s_id = %d" % (server_id)
-    sql = "SELECT id FROM info where id = %d" % server_id
+    sql = "SELECT s_port FROM server where s_id = %d" % server_id
     try:
         conn = MySQLdb.connect(user=LOGIN_DB_USER, passwd=LOGIN_DB_PSW, host=LOGIN_DB_IP, port=LOGIN_DB_PORT,
-                               charset=DB_CHARSET, db="test")
+                               charset=DB_CHARSET, db=LOGIN_DB_NAME)
         cur = conn.cursor()
         cur.execute(sql)
         res = cur.fetchone()
@@ -106,5 +106,5 @@ if __name__ == "__main__":
     print all_server_list()
     print game_data_name(all_server_list())
     print game_log_name(all_server_list())
-    print game_port(1)
+    print game_port(10061)
 
