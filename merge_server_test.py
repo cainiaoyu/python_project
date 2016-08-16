@@ -85,7 +85,10 @@ def game_port(server_id):
         res = cur.fetchone()
         cur.close()
         conn.close()
-        return res
+        if res is None:
+            print "没有找到相关记录，请检查服务器id: %d 是否正确" % server_id
+        else:
+            return res
     except MySQLdb.Error, e:
         print "Mysql Error %d: %s" % (e.args[0], e.args[1])
 
