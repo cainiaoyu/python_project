@@ -75,15 +75,20 @@ def game_port(server_id):
 
     :return: int
     """
+    # sql = "SELECT s_port FROM server WHERE s_id = %d" % (server_id)
+    sql = "SELECT id FROM test where id = %d" % server_id
     try:
         conn = MySQLdb.connect(user=LOGIN_DB_USER, passwd=LOGIN_DB_PSW, host=LOGIN_DB_IP, port=LOGIN_DB_PORT,
-                               charset=DB_CHARSET, db=LOGIN_DB_NAME)
+                               charset=DB_CHARSET, db="test")
         cur = conn.cursor()
         cur.execute(sql)
+        res = cur.fetchone()
         cur.close()
         conn.close()
     except MySQLdb.Error, e:
         print "Mysql Error %d: %s" % (e.args[0], e.args[1])
+
+    return res
 
 
 def game_address():
@@ -99,5 +104,5 @@ if __name__ == "__main__":
     print all_server_list()
     print game_data_name(all_server_list())
     print game_log_name(all_server_list())
-    print "test git"
+    print game_port(1)
 
