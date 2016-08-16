@@ -88,7 +88,7 @@ def game_port(server_id):
         if res is None:
             print "没有找到相关记录，请检查服务器id: %d 是否正确" % server_id
         else:
-            return res
+            return res[0]
     except MySQLdb.Error, e:
         print "Mysql Error %d: %s" % (e.args[0], e.args[1])
 
