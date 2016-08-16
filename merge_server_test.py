@@ -106,5 +106,5 @@ if __name__ == "__main__":
     print all_server_list()
     print game_data_name(all_server_list())
     print game_log_name(all_server_list())
-    print game_port(10061)
+    print type(game_port(10061))
 
