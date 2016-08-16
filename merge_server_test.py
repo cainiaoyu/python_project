@@ -85,10 +85,9 @@ def game_port(server_id):
         res = cur.fetchone()
         cur.close()
         conn.close()
+        return res
     except MySQLdb.Error, e:
         print "Mysql Error %d: %s" % (e.args[0], e.args[1])
-
-    return res
 
 
 def game_address():
