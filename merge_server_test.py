@@ -76,7 +76,7 @@ def game_port(server_id):
     :return: int
     """
     # sql = "SELECT s_port FROM server WHERE s_id = %d" % (server_id)
-    sql = "SELECT id FROM test where id = %d" % server_id
+    sql = "SELECT id FROM info where id = %d" % server_id
     try:
         conn = MySQLdb.connect(user=LOGIN_DB_USER, passwd=LOGIN_DB_PSW, host=LOGIN_DB_IP, port=LOGIN_DB_PORT,
                                charset=DB_CHARSET, db="test")
