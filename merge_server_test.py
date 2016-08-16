@@ -123,4 +123,4 @@ if __name__ == "__main__":
     print game_log_name(all_server_list())
     print game_port(10061)
     print game_address(10061)
-    print type(game_address(10061))
+    print type(game_address(10061).decode("uft8"))
