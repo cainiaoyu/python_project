@@ -98,7 +98,22 @@ def game_address():
 
     :return: string
     """
-    pass
+    sql = "SELECT s_ip FROM server where s_id = %d" % server_id
+    try:
+        conn = MySQLdb.connect(user=LOGIN_DB_USER, passwd=LOGIN_DB_PSW, host=LOGIN_DB_IP, port=LOGIN_DB_PORT,
+                               charset=DB_CHARSET, db=LOGIN_DB_NAME)
+        cur = conn.cursor()
+        cur.execute(sql)
+        res = cur.fetchone()
+        cur.close()
+        conn.close()
+        if res is None:
+            print "没有找到相关记录，请检查服务器id: %d 是否正确" % server_id
+        else:
+            return res[0]
+    except MySQLdb.Error, e:
+        print "Mysql Error %d: %s" % (e.args[0], e.args[1])
+
 
 if __name__ == "__main__":
     print destination_server()
@@ -106,5 +121,6 @@ if __name__ == "__main__":
     print all_server_list()
     print game_data_name(all_server_list())
     print game_log_name(all_server_list())
-    print type(game_port(10061))
-
+    print game_port(10061)
+    print game_address(10061)
+    print type(game_address(10061))
