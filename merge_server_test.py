@@ -93,7 +93,7 @@ def game_port(server_id):
         print "Mysql Error %d: %s" % (e.args[0], e.args[1])
 
 
-def game_address():
+def game_address(server_id):
     """游戏服务器的地址
 
     :return: string
