@@ -8,6 +8,9 @@
 import MySQLdb
 import yaml
 import os
+import paramiko
+import socket
+
 
 YAML_FILENAME = "merge_config"   # 配置合服服务器ID文件名，一般和merge_server.py 脚本放在一起
 LOGIN_DB_IP = "192.168.199.102"  # 登陆服务器数据库所在地址， 用于根据ID查询服务器所在的IP和端口信息
@@ -19,12 +22,13 @@ DB_CHARSET = "utf8"  # 设置默认数据库编码
 DTL_GAME_BASE = "/data/ywygame_dtl/"  # 大屠龙游戏服务器安装路径
 TZ_GAME_BASE = "/data/ywygame/"  # 天尊服务器安装路径
 TZ_LEGEND = 81  # 天尊传奇区id, 因为天尊传奇区在服务区安装路径，游戏数据库名区别于其他游戏服务器
+RAS_KEY_FILE = "/root/.ssh/id_rsa"
 
 
 def tz_or_dtl(server_id):
     """判断是天尊服务器还是大屠龙服务器
-    :param server_id:
-    :return: string
+    :param int server_id: 游戏服务器id
+    :return: 字符串"tz"或者"dtl"表明天尊还是大屠龙服务器
     """
     if server_id < 10000:
         return "tz"
@@ -34,8 +38,8 @@ def tz_or_dtl(server_id):
 
 def is_legend_server(server_id):
     """判断是否为传奇服务器（包括合服后为传奇区），因为传奇服务器的数据库名字和在linux下存放的路径名比较特殊
-    :param server_id:
-    :return: boole
+    :param int server_id: 游戏服务器id
+    :return: 是否为传奇区服务器
     """
     # 根据服务器ID查出来的IP地址和端口都是和现在的传奇区服务器地址、端口一样的话， 就属于传奇区
     if tz_or_dtl(server_id) == "tz":
@@ -48,8 +52,9 @@ def is_legend_server(server_id):
 
 
 def destination_server():
-    """返回目标服务器ID
-    :return: int
+    """根据merger_config配置文件里的server_id
+    生成目标服务器即合服的最终服务器
+    :return: 返回目标服务器id
     """
     fd = open(YAML_FILENAME)
     server_id = yaml.load(fd)
@@ -58,8 +63,9 @@ def destination_server():
 
 
 def original_server():
-    """ 返回源服务器ID列表
-    :return: list
+    """ 根据merger_config配置文件里的server_id
+    生成源服务器id列表，可能是多个
+    :return: 返回源服务器ID列表
     """
     fd = open(YAML_FILENAME)
     server_id = yaml.load(fd)
@@ -68,9 +74,9 @@ def original_server():
 
 
 def all_server_list():
-    """返回所有服务器ID
-
-    :return: list
+    """根据merger_config配置文件里的server_id
+     返回所有配置的服务器id
+    :return: 返回所有服务器ID
     """
     fd = open(YAML_FILENAME)
     server_id = yaml.load(fd)
@@ -79,9 +85,9 @@ def all_server_list():
 
 
 def game_data_name(server_list):
-    """返回游戏数据库名
-
-    :return: string list
+    """根据服务器列表生成游戏服务器data数据库名字
+    :param list server_list :
+    :return: 返回游戏数据库名
     """
     name_list = []
     for id_ in server_list:
@@ -90,9 +96,9 @@ def game_data_name(server_list):
 
 
 def game_log_name(server_list):
-    """返回游戏日志数据库名
-
-    :return: string list
+    """根据服务器列表生成游戏服务器log数据库名字
+    :param list server_list: 游戏服务器列表
+    :return: 返回游戏日志数据库名
     """
     name_list = []
     for id_ in server_list:
@@ -101,9 +107,9 @@ def game_log_name(server_list):
 
 
 def game_server_port(server_id):
-    """游戏服务器的端口
-
-    :return: int
+    """根据游戏服务器id返回游戏服务器所在物理服务器的端口
+    :param int server_id: 游戏服务器id
+    :return: 游戏服务器的端口
     """
     # sql = "SELECT s_port FROM server WHERE s_id = %d" % (server_id)
     sql = "SELECT s_port FROM server where s_id = %d" % server_id
@@ -117,6 +123,7 @@ def game_server_port(server_id):
         conn.close()
         if res is None:
             print "没有找到相关记录，请检查服务器id: %d 是否正确" % server_id
+            exit(100)
         else:
             return int(res[0])
     except MySQLdb.Error, e:
@@ -124,7 +131,12 @@ def game_server_port(server_id):
 
 
 def game_server_name(server_id):
-    if is_legend_server(server_id):
+    """根据游戏服务器id规定游戏服务器在物理服务器上的文件夹名字
+    传奇区名字特殊
+    :param int server_id:
+    :return: 游戏服务器id所在物理服务器文件夹名
+    """
+    if is_legend_server(server_id):  # 判断是否为传奇区
         return "gameserver"
     else:
         return "gameserver_" + str(server_id)
@@ -138,9 +150,9 @@ def game_server_dir(server_id):
 
 
 def game_server_address(server_id):
-    """游戏服务器的地址
+    """根据游戏服务器id返回其所在的物理服务器IP地址
 
-    :return: string
+    :return: 指定游戏服务器id的物理服务器地址
     """
     sql = "SELECT s_ip FROM server where s_id = %d" % server_id
     try:
@@ -153,15 +165,43 @@ def game_server_address(server_id):
         conn.close()
         if res is None:
             print "没有找到相关记录，请检查服务器id: %d 是否正确" % server_id
+            exit(100)
         else:
             return res[0].encode("utf8")
     except MySQLdb.Error, e:
         print "Mysql Error %d: %s" % (e.args[0], e.args[1])
 
 
-def shutdown_game(ip, port):
-    pass
-
+def shutdown_game(ip, ssh_port):
+    try:
+        ssh_client = paramiko.SSHClient()
+        ssh_client.load_system_host_keys()
+        private_key = paramiko.RSAKey.from_private_key_file(RAS_KEY_FILE)
+        ssh_client.connect(ip, port=ssh_port, pkey=private_key)
+        stdin, stdout, stderr = ssh_client.exec_command("cat /root/test1.txt")
+        stdout_content = stdout.read()
+        stderr_content = stderr.read()
+        if not stderr_content:
+            print stdout_content.strip("\n")
+        else:
+            print stderr_content.strip("\n")
+        ssh_client.close()
+    except paramiko.SSHException:
+        print "there was any other error connecting or establishing an SSH session"
+        exit(1)
+    except paramiko.BadHostKeyException:
+        print "BadHostKey"
+        exit(1)
+    except paramiko.AuthenticationException:
+        print "Authentication Failed"
+        exit(1)
+    except socket.error:
+        print "socket error"
+        exit(1)
 
 if __name__ == "__main__":
     print game_server_dir(10061)
+    shutdown_game("192.168.199.102", 22)
+
+
+
