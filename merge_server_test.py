@@ -11,6 +11,7 @@ import os
 import paramiko
 import socket
 
+from paramiko import SSHException
 
 YAML_FILENAME = "merge_config"   # 配置合服服务器ID文件名，一般和merge_server.py 脚本放在一起
 LOGIN_DB_IP = "192.168.199.102"  # 登陆服务器数据库所在地址， 用于根据ID查询服务器所在的IP和端口信息
@@ -43,7 +44,8 @@ def is_legend_server(server_id):
     """
     # 根据服务器ID查出来的IP地址和端口都是和现在的传奇区服务器地址、端口一样的话， 就属于传奇区
     if tz_or_dtl(server_id) == "tz":
-        if (game_server_port(server_id) == game_server_port(TZ_LEGEND)) and (game_server_address(server_id) == game_server_address(TZ_LEGEND)):
+        if (game_server_port(server_id) == game_server_port(TZ_LEGEND)) and \
+                (game_server_address(server_id) == game_server_address(TZ_LEGEND)):
             return True
         else:
             return False
@@ -114,7 +116,8 @@ def game_server_port(server_id):
     # sql = "SELECT s_port FROM server WHERE s_id = %d" % (server_id)
     sql = "SELECT s_port FROM server where s_id = %d" % server_id
     try:
-        conn = MySQLdb.connect(user=LOGIN_DB_USER, passwd=LOGIN_DB_PSW, host=LOGIN_DB_IP, port=LOGIN_DB_PORT,
+        conn = MySQLdb.connect(user=LOGIN_DB_USER, passwd=LOGIN_DB_PSW,
+                               host=LOGIN_DB_IP, port=LOGIN_DB_PORT,
                                charset=DB_CHARSET, db=LOGIN_DB_NAME)
         cur = conn.cursor()
         cur.execute(sql)
@@ -156,7 +159,8 @@ def game_server_address(server_id):
     """
     sql = "SELECT s_ip FROM server where s_id = %d" % server_id
     try:
-        conn = MySQLdb.connect(user=LOGIN_DB_USER, passwd=LOGIN_DB_PSW, host=LOGIN_DB_IP, port=LOGIN_DB_PORT,
+        conn = MySQLdb.connect(user=LOGIN_DB_USER, passwd=LOGIN_DB_PSW,
+                               host=LOGIN_DB_IP, port=LOGIN_DB_PORT,
                                charset=DB_CHARSET, db=LOGIN_DB_NAME)
         cur = conn.cursor()
         cur.execute(sql)
@@ -172,13 +176,26 @@ def game_server_address(server_id):
         print "Mysql Error %d: %s" % (e.args[0], e.args[1])
 
 
-def shutdown_game(ip, ssh_port):
+def is_port_opened(ip, port):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        print "start, ip %s, port %d" % (ip, int(port))
+        s.connect((ip, int(port)))
+        print "stop"
+        s.shutdown(2)
+        return True
+    except socket.error as e:
+        return False
+
+
+def shutdown_single_game(ip, server_id, ssh_port=22):
     try:
         ssh_client = paramiko.SSHClient()
         ssh_client.load_system_host_keys()
         private_key = paramiko.RSAKey.from_private_key_file(RAS_KEY_FILE)
         ssh_client.connect(ip, port=ssh_port, pkey=private_key)
-        stdin, stdout, stderr = ssh_client.exec_command("cat /root/test1.txt")
+        cmd = os.path.join(game_server_dir(server_id), "script", "stop_gs.sh")
+        stdin, stdout, stderr = ssh_client.exec_command(cmd)
         stdout_content = stdout.read()
         stderr_content = stderr.read()
         if not stderr_content:
@@ -186,22 +203,78 @@ def shutdown_game(ip, ssh_port):
         else:
             print stderr_content.strip("\n")
         ssh_client.close()
-    except paramiko.SSHException:
-        print "there was any other error connecting or establishing an SSH session"
-        exit(1)
-    except paramiko.BadHostKeyException:
-        print "BadHostKey"
-        exit(1)
-    except paramiko.AuthenticationException:
-        print "Authentication Failed"
-        exit(1)
-    except socket.error:
-        print "socket error"
-        exit(1)
+    except paramiko.SSHException as ssh_error:
+        print "connection error:%s" % ssh_error
+
+
+def startup_single_game(ip, server_id, ssh_port=22):
+    try:
+        ssh_client = paramiko.SSHClient()
+        ssh_client.load_system_host_keys()
+        private_key = paramiko.RSAKey.from_private_key_file(RAS_KEY_FILE)
+        ssh_client.connect(ip, port=ssh_port, pkey=private_key)
+        cmd = os.path.join(game_server_dir(server_id), "script", "start_gs.sh")
+        stdin, stdout, stderr = ssh_client.exec_command(cmd)
+        stdout_content = stdout.read()
+        stderr_content = stderr.read()
+        if not stderr_content:
+            print stdout_content.strip("\n")
+        else:
+            print stderr_content.strip("\n")
+        ssh_client.close()
+    except paramiko.SSHException as ssh_error:
+        print "connection error:%s" % ssh_error
+
+
+def game_server_cn_name(server_id):
+    """根据游戏服务器id返回游戏服务器的名字
+
+    :return: string 游戏服务器名字zone_
+    """
+    sql = "SELECT s_name FROM server where s_id = %d" % server_id
+    try:
+        conn = MySQLdb.connect(user=LOGIN_DB_USER, passwd=LOGIN_DB_PSW,
+                               host=LOGIN_DB_IP, port=LOGIN_DB_PORT,
+                               charset=DB_CHARSET, db=LOGIN_DB_NAME)
+        cur = conn.cursor()
+        cur.execute(sql)
+        res = cur.fetchone()
+        cur.close()
+        conn.close()
+        if res is None:
+            print "没有找到相关记录，请检查服务器id: %d 是否正确" % server_id
+            exit(100)
+        else:
+            return res[0].encode("utf8")
+    except MySQLdb.Error, e:
+        print "Mysql Error %d: %s" % (e.args[0], e.args[1])
+
+
+def shutdown_all_server(all_server_id, ssh_port=22):
+
+    shutdown_list = []
+    failed_shutdown_list = []
+
+    for server_id in all_server_id:
+        if is_port_opened(game_server_address(server_id), game_server_port(server_id)):
+            print "检测到%s是开启的，正在关闭服务器" % game_server_cn_name(server_id)
+            shutdown_list.append(server_id)
+            shutdown_single_game(game_server_address(server_id), server_id, ssh_port)
+        else:
+            print "服务器%s已经关闭" % game_server_cn_name(server_id)
+
+    if shutdown_list:
+        for server_id in shutdown_list:
+            if not is_port_opened(game_server_address(server_id), game_server_port(server_id)):
+                print "关闭%s服务器成功" % game_server_cn_name(server_id)
+            else:
+                failed_shutdown_list.append(server_id)
+
+    return failed_shutdown_list
+
 
 if __name__ == "__main__":
-    print game_server_dir(10061)
-    shutdown_game("192.168.199.102", 22)
+    print shutdown_all_server(all_server_list())
 
 
 
