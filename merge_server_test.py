@@ -10,18 +10,25 @@ import yaml
 import os
 import paramiko
 import socket
+import subprocess
 
-from paramiko import SSHException
-
+#合服配置文件
 YAML_FILENAME = "merge_config"   # 配置合服服务器ID文件名，一般和merge_server.py 脚本放在一起
+#登陆服务器数据库配置
 LOGIN_DB_IP = "192.168.199.102"  # 登陆服务器数据库所在地址， 用于根据ID查询服务器所在的IP和端口信息
 LOGIN_DB_PSW = "123321"  # 登陆服务器密码
 LOGIN_DB_USER = "yx"  # 登陆服务器用户名
 LOGIN_DB_NAME = "dragonlogindata"  # 登陆服务器数据库名
 LOGIN_DB_PORT = 3306  # 登陆服务器端口
 DB_CHARSET = "utf8"  # 设置默认数据库编码
+#游戏服务器路径
 DTL_GAME_BASE = "/data/ywygame_dtl/"  # 大屠龙游戏服务器安装路径
 TZ_GAME_BASE = "/data/ywygame/"  # 天尊服务器安装路径
+#合服数据库配置
+MERGE_DB_IP = "192.168.199.102"
+MERGE_DB_USER = "yx"
+MERGE_DB_PSW = "123321"
+#其他配置
 TZ_LEGEND = 81  # 天尊传奇区id, 因为天尊传奇区在服务区安装路径，游戏数据库名区别于其他游戏服务器
 RAS_KEY_FILE = "/root/.ssh/id_rsa"
 
@@ -44,7 +51,7 @@ def is_legend_server(server_id):
     """
     # 根据服务器ID查出来的IP地址和端口都是和现在的传奇区服务器地址、端口一样的话， 就属于传奇区
     if tz_or_dtl(server_id) == "tz":
-        if (game_server_port(server_id) == game_server_port(TZ_LEGEND)) and \
+        if (get_game_server_port(server_id) == get_game_server_port(TZ_LEGEND)) and \
                 (game_server_address(server_id) == game_server_address(TZ_LEGEND)):
             return True
         else:
@@ -86,29 +93,35 @@ def all_server_list():
     return server_id["server_list"]
 
 
-def game_data_name(server_list):
-    """根据服务器列表生成游戏服务器data数据库名字
-    :param list server_list :
+def  gamedata_database_name(server_id):
+    """根据服务器id生成游戏服务器data数据库名字
+    :param int server_id : 游戏服务器id
     :return: 返回游戏数据库名
     """
-    name_list = []
-    for id_ in server_list:
-        name_list.append("dragongamedata_" + str(id_))
-    return name_list
+    return "dragongamedata_" + str(server_id)
 
 
-def game_log_name(server_list):
-    """根据服务器列表生成游戏服务器log数据库名字
-    :param list server_list: 游戏服务器列表
+def gamelog_database_name(server_id):
+    """根据服务器id生成游戏服务器log数据库名字
+    :param int server_id: 游戏服务器id
     :return: 返回游戏日志数据库名
     """
-    name_list = []
-    for id_ in server_list:
-        name_list.append("dragongamelog_" + str(id_))
-    return name_list
+    return "dragongamelog_" + str(server_id)
 
 
-def game_server_port(server_id):
+def gamedata_database_filename(server_id):
+    """gamedata SQL 文件名
+    """
+    return gamedata_database_name(server_id) + ".sql"
+
+
+def gamelog_database_filename(server_id):
+    """gamelog SQL 文件名
+    """
+    return gamelog_database_name(server_id) + ".sql"
+
+
+def get_game_server_port(server_id):
     """根据游戏服务器id返回游戏服务器所在物理服务器的端口
     :param int server_id: 游戏服务器id
     :return: 游戏服务器的端口
@@ -179,9 +192,7 @@ def game_server_address(server_id):
 def is_port_opened(ip, port):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        print "start, ip %s, port %d" % (ip, int(port))
         s.connect((ip, int(port)))
-        print "stop"
         s.shutdown(2)
         return True
     except socket.error as e:
@@ -256,7 +267,7 @@ def shutdown_all_server(all_server_id, ssh_port=22):
     failed_shutdown_list = []
 
     for server_id in all_server_id:
-        if is_port_opened(game_server_address(server_id), game_server_port(server_id)):
+        if is_port_opened(game_server_address(server_id), get_game_server_port(server_id)):
             print "检测到%s是开启的，正在关闭服务器" % game_server_cn_name(server_id)
             shutdown_list.append(server_id)
             shutdown_single_game(game_server_address(server_id), server_id, ssh_port)
@@ -265,7 +276,7 @@ def shutdown_all_server(all_server_id, ssh_port=22):
 
     if shutdown_list:
         for server_id in shutdown_list:
-            if not is_port_opened(game_server_address(server_id), game_server_port(server_id)):
+            if not is_port_opened(game_server_address(server_id), get_game_server_port(server_id)):
                 print "关闭%s服务器成功" % game_server_cn_name(server_id)
             else:
                 failed_shutdown_list.append(server_id)
@@ -273,8 +284,75 @@ def shutdown_all_server(all_server_id, ssh_port=22):
     return failed_shutdown_list
 
 
+def confirm_game_server_power_off(game_list):
+    for server_id in game_list:
+        print "由于某种原因服务器%s没有关闭成功，你需要使用ssh命令登陆到服务器地址%s，关闭端口号为%d的游戏服务器" \
+              % (game_server_cn_name(server_id), game_server_address(server_id), get_game_server_port(server_id))
+        print "提示:游戏服务器%s在服务器%s上的存放路劲为%s" % (game_server_cn_name(server_id),
+                                                               game_server_address(server_id),
+                                                               game_server_dir(server_id))
+        not_shutdown_flag = True
+        while not_shutdown_flag:
+            confirm = raw_input("关闭%s服务器了吗？(y/n):" % game_server_cn_name(server_id))
+            if confirm in "Yy":
+                if is_port_opened(game_server_address(server_id), get_game_server_port(server_id)):
+                    print "检查服务器%s还存在" % game_server_cn_name(server_id)
+                    continue
+                not_shutdown_flag = False
+
+
+def continue_or_not():
+    flag = True
+    while flag:
+        confirm = raw_input("是否继续(y/n):")
+        if confirm in "Yy":
+            flag = False
+        elif confirm in "Nn":
+            exit(2)
+
+
+def backup_single_gamedata_database(server_id):
+    dump_sql = "mysqldump -u%s -p%s -h%s --skip-lock-tables -t %s > %s" % (MERGE_DB_USER, MERGE_DB_PSW, MERGE_DB_IP,
+                                                                           gamedata_database_name(server_id),
+                                                                           gamedata_database_filename(server_id))
+    try:
+        subprocess.check_call(dump_sql, shell=True)
+    except subprocess.CalledProcessError as e:
+        print e.returncode
+        print e.cmd
+
+
+def backup_single_gamelog_database(server_id):
+    dump_sql = "mysqldump -u%s -p%s -h%s --skip-lock-tables -t %s > %s" % (MERGE_DB_USER, MERGE_DB_PSW, MERGE_DB_IP,
+                                                                           gamelog_database_name(server_id),
+                                                                           gamelog_database_filename(server_id))
+    try:
+        subprocess.check_call(dump_sql, shell=True)
+    except subprocess.CalledProcessError as e:
+        print e.returncode
+        print e.cmd
+
+
+def backup_all_gamedata_database(server_list):
+    for server_id in server_list:
+        print "开始备份%s的数据库%s" % (game_server_cn_name(server_id), gamedata_database_name(server_id))
+        backup_single_gamedata_database(server_id)
+        print "备份%s数据库完毕" % gamedata_database_name(server_id)
+
+
+def backup_all_gamelog_database(server_list):
+    for server_id in server_list:
+        print "开始备份%s的数据库%s" % (game_server_cn_name(server_id), gamelog_database_name(server_id))
+        backup_single_gamelog_database(server_id)
+        print "备份%s数据库完毕" % gamelog_database_name(server_id)
+
+
 if __name__ == "__main__":
-    print shutdown_all_server(all_server_list())
+    not_shutdown_server_list = shutdown_all_server(all_server_list())
+    confirm_game_server_power_off(not_shutdown_server_list)
+    backup_all_gamedata_database(all_server_list())
+    backup_all_gamelog_database(all_server_list())
+
 
 
 

@@ -101,7 +101,7 @@ def inputServerInfo(yamlContent, yamlkey):
     return serName , serverIP, int(portNumber)
 
 
-if __name__=="__main__": 
+if __name__ == "__main__":
     serName, serverIP, portNumber = inputServerInfo(yamlContent, "servername")    
     print "你选择的物理服务器是 %s" % (serName)
     
